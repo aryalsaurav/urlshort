@@ -5,6 +5,7 @@ django-qr-code==4.2.0
 pillow==11.2.1
 pydantic==2.11.4
 pydantic_core==2.33.2
+qrcode==8.2
 segno==1.6.6
 sqlparse==0.4.4
 typing-inspection==0.4.0
