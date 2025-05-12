@@ -4,9 +4,15 @@ from django.contrib.auth.models import User,AnonymousUser
 from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
+from django.core.files.base import ContentFile
+from django.utils import timezone
+from django.db.models import Q
 from .models import UrlShortener
 import string
 import random
+import io
+import qrcode
+
 from datetime import datetime
 from django.utils.timezone import make_aware
 
@@ -36,6 +42,12 @@ def logout_view(request):
 
 
 
+@login_required(login_url="/login/")
+def index(request):
+    urls = UrlShortener.objects.filter()
+    return render(request, 'index.html', {'urls': urls})
+
+
 def generate_short_url():
     characters = string.digits + string.ascii_letters
     short_url = "".join(random.choice(characters) for i in range(6))
@@ -43,27 +55,119 @@ def generate_short_url():
 
 
 
-def creat_short_url(request):
+# def creat_short_url(request):
     
-    original_url = request.GET.get("url")
-    key = request.GET.get("key")
-    time = request.GET.get("time")
-    print(time,'timeeeeeeee')
-    if time:
-        time = datetime.strptime(time, "%Y-%m-%d %H:%M:%S")
-    else:
-        time = None
-    if key:
-        find_key = UrlShortener.objects.filter(short_url=key)
-        if find_key:
-            return HttpResponse("Key already exist")
+#     original_url = request.GET.get("url")
+#     key = request.GET.get("key")
+#     time = request.GET.get("time")
+
+#     if time:
+#         time = datetime.strptime(time, "%Y-%m-%d %H:%M:%S")
+#     else:
+#         time = None
+#     if key:
+#         find_key = UrlShortener.objects.filter(short_url=key)
+#         if find_key:
+#             return HttpResponse("Key already exist")
+#         else:
+#             short_url = key
+#     else:
+#         short_url = generate_short_url()
+#     short_url_inst = UrlShortener.objects.create(long_url=original_url, short_url=short_url, expiration_time=time)
+#     short_url_inst.save()
+#     return HttpResponse(short_url)
+
+@login_required
+def create_short_url(request):
+    user = request.user
+    now  = timezone.now()
+    if request.method == 'POST':
+        original_url = request.POST.get('original_url')
+        custom_alias = request.POST.get('custom_alias') or None
+        exp_str = request.POST.get('expiration_time')
+        expiration_time = None
+
+        # Validate URL
+        if not original_url:
+            return redirect('account:home')
+
+        # Parse expiration_time
+        if exp_str:
+            try:
+                # from datetime-local: YYYY-MM-DDTHH:MM
+                dt = datetime.strptime(exp_str, '%Y-%m-%dT%H:%M')
+                expiration_time = timezone.make_aware(dt, timezone.get_current_timezone())
+            except ValueError:
+                return redirect('account:home')
+
+        # 1) Reuse existing non-expired entry?
+        existing = (
+            UrlShortener.objects
+            .filter(long_url=original_url, user=user)
+            .filter(Q(expiration_time__gt=now) | Q(expiration_time__isnull=True))
+            .first()
+        )
+        if existing:
+            # Extend expiration if new time is later
+            if expiration_time and (
+               not existing.expiration_time or expiration_time > existing.expiration_time
+            ):
+                existing.expiration_time = expiration_time
+                existing.save(update_fields=['expiration_time'])
+            else:
+                return redirect('account:home')
+
+        # 2) Determine unique short_code
+        if custom_alias:
+            conflict = (
+                UrlShortener.objects
+                .filter(short_url=custom_alias, user=user)
+                .filter(Q(expiration_time__gt=now) | Q(expiration_time__isnull=True))
+                .exists()
+            )
+            if conflict:
+                return redirect('account:home')
+            short_code = custom_alias
         else:
-            short_url = key
-    else:
-        short_url = generate_short_url()
-    short_url_inst = UrlShortener.objects.create(long_url=original_url, short_url=short_url, expiration_time=time)
-    short_url_inst.save()
-    return HttpResponse(short_url)
+            short_code = generate_short_url()
+            # avoid collisions
+            while (
+                UrlShortener.objects
+                .filter(short_url=short_code, user=user)
+                .filter(Q(expiration_time__gt=now) | Q(expiration_time__isnull=True))
+                .exists()
+            ):
+                short_code = generate_short_url()
+
+        # 3) Create the record
+        obj = UrlShortener.objects.create(
+            user=user,
+            long_url=original_url,
+            short_url=short_code,
+            expiration_time=expiration_time,
+        )
+
+        # 4) Generate & attach QR code
+        full_url = request.build_absolute_uri(f'/{obj.short_url}')
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(full_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG')
+        buffer.seek(0)
+
+        qr_filename = f"{short_code}.png"
+        obj.qr_code.save(qr_filename, ContentFile(buffer.read()), save=False)
+        obj.save()
+
+        return redirect('account:home')
     
 
 @login_required(login_url="/login/")
