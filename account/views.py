@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.utils import timezone
+from django.contrib import messages
 from django.db.models import Q
 from .models import UrlShortener
 import string
@@ -44,7 +45,7 @@ def logout_view(request):
 
 @login_required(login_url="/login/")
 def index(request):
-    urls = UrlShortener.objects.filter()
+    urls = UrlShortener.objects.filter().order_by("-id")
     return render(request, 'index.html', {'urls': urls})
 
 
@@ -115,6 +116,7 @@ def create_short_url(request):
                 existing.expiration_time = expiration_time
                 existing.save(update_fields=['expiration_time'])
             else:
+                messages.error(request, "Short url with this token already exists.")
                 return redirect('account:home')
 
         # 2) Determine unique short_code

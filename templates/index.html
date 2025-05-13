@@ -27,24 +27,36 @@
   </nav>
 
   <div class="container py-5">
-    <!-- Flash messages -->
-    {% if messages %}
-      {% for msg in messages %}
-        <div class="alert alert-{{ msg.tags }} alert-dismissible fade show" role="alert">
-          {{ msg }}
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-      {% endfor %}
-    {% endif %}
+
 
     <div class="row justify-content-center">
+    {% if messages %}
+      <div class="row justify-content-center mb-4">
+        <div class="col-md-8">
+          {% for msg in messages %}
+            <div
+              class="alert alert-{{ msg.tags }} alert-dismissible fade show"
+              role="alert"
+            >
+              {{ msg }}
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="alert"
+                aria-label="Close"
+              ></button>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
       <div class="col-md-8">
 
         <!-- Shorten Form -->
         <div class="card mb-4 shadow-sm">
           <div class="card-body">
             <h4 class="card-title mb-4 text-center">Shorten a URL</h4>
-            <form method="POST" action="{% url 'account:creat_short_url' %}">
+            <form method="POST" action="{% url 'account:create_short_url' %}">
               {% csrf_token %}
               <div class="mb-3">
                 <label for="original_url" class="form-label">URL to shorten</label>
